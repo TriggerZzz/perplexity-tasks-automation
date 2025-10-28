@@ -39,10 +39,10 @@ class PerplexityProCryptoGenerator:
             "Content-Type": "application/json"
         }
     
-def get_crypto_news_with_images(self) -> Tuple[str, List[str]]:
-    """Get crypto news summary with images from Perplexity PRO"""
-    
-    query = """Create a comprehensive summary of today's top global cryptocurrency market news. Include:
+    def get_crypto_news_with_images(self) -> Tuple[str, List[str]]:
+        """Get crypto news summary with images from Perplexity PRO"""
+        
+        query = """Create a comprehensive summary of today's top global cryptocurrency market news. Include:
 
 1. Major Bitcoin and Ethereum price movements and analysis
 2. Significant altcoin developments and market trends  
@@ -53,89 +53,89 @@ def get_crypto_news_with_images(self) -> Tuple[str, List[str]]:
 7. Market sentiment and trading volume analysis
 
 Please include relevant images showing cryptocurrency charts, trading data, or market visualizations. Make the summary informative and engaging for crypto investors and traders. Focus on today's date and recent developments."""
-    
-    payload = {
-        "model": "llama-3.1-sonar-small-128k-online",  # Fixed model name
-        "messages": [
-            {
-                "role": "user", 
-                "content": query
-            }
-        ],
-        "max_tokens": 2000,
-        "temperature": 0.3,
-        "return_citations": True,
-        "return_images": True
-    }
-    
-    try:
-        logger.info("🔍 Fetching crypto news and images from Perplexity PRO...")
-        response = requests.post(
-            self.base_url,
-            headers=self.headers, 
-            json=payload,
-            timeout=90
-        )
         
-        logger.info(f"📡 Response status code: {response.status_code}")
+        payload = {
+            "model": "llama-3.1-sonar-small-128k-online",
+            "messages": [
+                {
+                    "role": "user", 
+                    "content": query
+                }
+            ],
+            "max_tokens": 2000,
+            "temperature": 0.3,
+            "return_citations": True,
+            "return_images": True
+        }
         
-        if response.status_code != 200:
-            logger.error(f"❌ API response error: {response.text}")
-            raise Exception(f"API returned {response.status_code}")
-        
-        response.raise_for_status()
-        result = response.json()
-        
-        # Extract content and images
-        content = result['choices'][0]['message']['content']
-        
-        # Extract images from multiple possible locations
-        images = []
-        
-        # Method 1: Direct images array
-        if 'images' in result:
-            for img in result['images']:
-                if isinstance(img, str):
-                    images.append(img)
-                elif isinstance(img, dict) and 'url' in img:
-                    images.append(img['url'])
-        
-        # Method 2: From choices
-        if 'choices' in result and len(result['choices']) > 0:
-            choice = result['choices'][0]
-            if 'images' in choice:
-                for img in choice['images']:
+        try:
+            logger.info("🔍 Fetching crypto news and images from Perplexity PRO...")
+            response = requests.post(
+                self.base_url,
+                headers=self.headers, 
+                json=payload,
+                timeout=90
+            )
+            
+            logger.info(f"📡 Response status code: {response.status_code}")
+            
+            if response.status_code != 200:
+                logger.error(f"❌ API response error: {response.text}")
+                raise Exception(f"API returned {response.status_code}")
+            
+            response.raise_for_status()
+            result = response.json()
+            
+            # Extract content and images
+            content = result['choices'][0]['message']['content']
+            
+            # Extract images from multiple possible locations
+            images = []
+            
+            # Method 1: Direct images array
+            if 'images' in result:
+                for img in result['images']:
                     if isinstance(img, str):
                         images.append(img)
                     elif isinstance(img, dict) and 'url' in img:
                         images.append(img['url'])
-        
-        # Method 3: From provider metadata
-        if 'provider_metadata' in result:
-            metadata = result['provider_metadata']
-            if 'perplexity' in metadata and 'images' in metadata['perplexity']:
-                for img in metadata['perplexity']['images']:
-                    if 'imageUrl' in img:
-                        images.append(img['imageUrl'])
-                    elif 'url' in img:
-                        images.append(img['url'])
-        
-        logger.info(f"📰 Content length: {len(content)} characters")
-        logger.info(f"🖼️ Found {len(images)} images")
-        
-        # Format the content
-        formatted_content = self.format_crypto_summary(content)
-        
-        return formatted_content, images
-        
-    except requests.exceptions.RequestException as e:
-        logger.error(f"❌ Perplexity API error: {e}")
-        if hasattr(e, 'response') and e.response is not None:
-            logger.error(f"Response content: {e.response.text}")
-        raise
-    except Exception as e:
-        logger.error(f"❌ Unexpected error: {e}")
-        raise
+            
+            # Method 2: From choices
+            if 'choices' in result and len(result['choices']) > 0:
+                choice = result['choices'][0]
+                if 'images' in choice:
+                    for img in choice['images']:
+                        if isinstance(img, str):
+                            images.append(img)
+                        elif isinstance(img, dict) and 'url' in img:
+                            images.append(img['url'])
+            
+            # Method 3: From provider metadata
+            if 'provider_metadata' in result:
+                metadata = result['provider_metadata']
+                if 'perplexity' in metadata and 'images' in metadata['perplexity']:
+                    for img in metadata['perplexity']['images']:
+                        if 'imageUrl' in img:
+                            images.append(img['imageUrl'])
+                        elif 'url' in img:
+                            images.append(img['url'])
+            
+            logger.info(f"📰 Content length: {len(content)} characters")
+            logger.info(f"🖼️ Found {len(images)} images")
+            
+            # Format the content
+            formatted_content = self.format_crypto_summary(content)
+            
+            return formatted_content, images
+            
+        except requests.exceptions.RequestException as e:
+            logger.error(f"❌ Perplexity API error: {e}")
+            if hasattr(e, 'response') and e.response is not None:
+                logger.error(f"Response content: {e.response.text}")
+            raise
+        except Exception as e:
+            logger.error(f"❌ Unexpected error: {e}")
+            raise
     
     def format_crypto_summary(self, content: str) -> str:
         """Format crypto summary to exactly 1,500 characters without spaces"""
