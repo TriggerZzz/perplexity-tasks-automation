@@ -42,37 +42,40 @@ class PerplexityTasksExtractor:
     def get_task_content(self, query: str) -> Dict[str, Any]:
         """Get content from Perplexity with images enabled"""
         payload = {
-            "model": "sonar-pro",
+            "model": "llama-3.1-sonar-small-128k-online",
             "messages": [
-                {
-                    "role": "system",
-                    "content": "You are a research assistant that provides comprehensive daily updates with visual content when relevant."
-                },
                 {
                     "role": "user", 
                     "content": query
                 }
             ],
-            "max_tokens": 2000,
-            "temperature": 0.7,
+            "max_tokens": 1000,
+            "temperature": 0.2,
             "return_citations": True,
-            "return_images": True,
-            "image_format_filter": ["jpg", "png", "webp"],
-            "image_domain_filter": ["-gettyimages.com"]
+            "return_images": True
         }
         
         try:
+            logger.info(f"Sending request to Perplexity API...")
             response = requests.post(
                 self.base_url,
                 headers=self.headers, 
                 json=payload,
                 timeout=60
             )
+            
+            logger.info(f"Response status code: {response.status_code}")
+            
+            if response.status_code != 200:
+                logger.error(f"API response content: {response.text}")
+            
             response.raise_for_status()
             return response.json()
             
         except requests.exceptions.RequestException as e:
             logger.error(f"Perplexity API error: {e}")
+            if hasattr(e, 'response') and e.response is not None:
+                logger.error(f"Response content: {e.response.text}")
             raise
         except Exception as e:
             logger.error(f"Unexpected error in Perplexity request: {e}")
@@ -92,7 +95,6 @@ class TelegramChannelBot:
             response = requests.get(image_url, timeout=30, stream=True)
             response.raise_for_status()
             
-            # Create temp file with proper extension
             parsed_url = urlparse(image_url)
             file_ext = Path(parsed_url.path).suffix or '.jpg'
             
@@ -140,14 +142,12 @@ class TelegramChannelBot:
         """Send text message to Telegram channel"""
         url = f"{self.base_url}/sendMessage"
         
-        # Split message if too long (4096 char limit)
         max_length = 4000
         messages = []
         
         if len(text) <= max_length:
             messages.append(text)
         else:
-            # Split by paragraphs
             paragraphs = text.split('\n\n')
             current_message = ""
             
@@ -189,34 +189,28 @@ class TelegramChannelBot:
 def format_perplexity_content(response: Dict[str, Any]) -> Tuple[str, List[str]]:
     """Format Perplexity response content and extract image URLs"""
     try:
-        # Extract main text content
         content = response['choices'][0]['message']['content']
-        
-        # Extract citations
         citations = response.get('citations', [])
         
-        # Extract images from provider metadata
+        # Extract images from response
         images = []
-        provider_metadata = response.get('provider_metadata', {})
-        perplexity_data = provider_metadata.get('perplexity', {})
-        image_data = perplexity_data.get('images', [])
-        
-        for img in image_data:
-            if 'imageUrl' in img:
-                images.append(img['imageUrl'])
+        if 'images' in response:
+            for img in response['images']:
+                if isinstance(img, str):
+                    images.append(img)
+                elif isinstance(img, dict) and 'url' in img:
+                    images.append(img['url'])
         
         # Format the main message
         formatted_message = f"📊 **Daily Research Update**\n"
         formatted_message += f"🕒 *{datetime.now().strftime('%B %d, %Y at %H:%M UTC')}*\n\n"
         formatted_message += content
         
-        # Add citations if available
         if citations:
             formatted_message += "\n\n📚 **Sources:**\n"
             for i, citation in enumerate(citations[:5], 1):
                 formatted_message += f"{i}. {citation}\n"
         
-        # Add footer
         formatted_message += "\n\n🤖 *Automated via Perplexity AI*"
         
         return formatted_message, images
@@ -227,9 +221,8 @@ def format_perplexity_content(response: Dict[str, Any]) -> Tuple[str, List[str]]
 
 def get_daily_query() -> str:
     """Generate daily query - customize this for your specific task"""
-    weekday = datetime.now().weekday()  # 0=Monday, 6=Sunday
+    weekday = datetime.now().weekday()
     
-    # Example queries - customize these to match your Perplexity Task
     queries = {
         0: "What are the most significant tech and AI developments this week? Include recent breakthroughs, product launches, and industry news.",
         1: "What are the latest startup funding rounds, IPOs, and major business news today?", 
@@ -255,21 +248,18 @@ def is_weekday() -> bool:
     return datetime.now().weekday() < 5
 
 def main():
-    """Main automation function with better error handling"""
+    """Main automation function"""
     logger.info("Starting daily Perplexity automation...")
     logger.info(f"Current time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')}")
     
-    # Check if it's a weekday
     if not is_weekday():
         logger.info("Today is weekend, skipping automation")
         return
     
-    # Get and validate environment variables
     perplexity_api_key = os.getenv('PERPLEXITY_API_KEY', '').strip()
     telegram_bot_token = os.getenv('TELEGRAM_BOT_TOKEN', '').strip()
     telegram_channel_id = os.getenv('TELEGRAM_CHANNEL_ID', '').strip()
     
-    # Detailed validation with specific error messages
     errors = []
     if not perplexity_api_key:
         errors.append("PERPLEXITY_API_KEY is missing or empty")
@@ -298,22 +288,17 @@ def main():
     temp_files = []
     
     try:
-        # Initialize clients
         perplexity = PerplexityTasksExtractor(perplexity_api_key)
         telegram = TelegramChannelBot(telegram_bot_token, telegram_channel_id)
         
-        # Get today's query
         query = get_daily_query()
         logger.info(f"Today's query: {query}")
         
-        # Get content from Perplexity (with images)
         logger.info("Fetching content from Perplexity...")
         response = perplexity.get_task_content(query)
         
-        # Format content and extract images
         formatted_text, image_urls = format_perplexity_content(response)
         
-        # Download images if any
         downloaded_images = []
         if image_urls:
             logger.info(f"Downloading {len(image_urls)} images...")
@@ -323,7 +308,6 @@ def main():
                     downloaded_images.append({'path': image_path, 'url': url})
                     temp_files.append(image_path)
         
-        # Send content to Telegram channel
         success = True
         
         if downloaded_images:
@@ -349,7 +333,6 @@ def main():
         sys.exit(1)
     
     finally:
-        # Cleanup temporary files
         cleanup_temp_files(temp_files)
 
 if __name__ == "__main__":
