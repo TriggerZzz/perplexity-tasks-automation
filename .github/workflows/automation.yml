@@ -1,13 +1,13 @@
-name: Daily Perplexity Tasks Automation
+name: FREE Daily Crypto Automation
 
-# Schedule for Monday-Friday at 19:00 PM (7 PM) UTC
+# Schedule for Monday-Friday at 19:00 PM (7 PM) UTC  
 on:
   schedule:
     - cron: '0 19 * * 1-5'  # Monday-Friday at 19:00 UTC
   workflow_dispatch:  # Manual trigger for testing
 
 jobs:
-  run-perplexity-automation:
+  run-free-crypto-automation:
     runs-on: ubuntu-latest
     
     steps:
@@ -25,9 +25,18 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
     
-    - name: Run Perplexity Tasks automation
+    - name: Run FREE Crypto Automation (Perplexity PRO Only)
       env:
         PERPLEXITY_API_KEY: ${{ secrets.PERPLEXITY_API_KEY }}
         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
       run: python perplexity_automation.py
+    
+    - name: Commit automation logs
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add -A
+        git diff --staged --quiet || git commit -m "FREE crypto automation - $(date)"
+        git push || echo "Nothing to push"
+      continue-on-error: true
