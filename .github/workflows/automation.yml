@@ -1,42 +1,138 @@
 name: FREE Daily Crypto Automation
 
-# Schedule for Monday-Friday at 19:00 PM (7 PM) UTC  
+# Schedule for Monday-Friday at 19:00 PM (7 PM) UTC
+# Adjust timezone by changing the hour if needed
 on:
   schedule:
-    - cron: '0 19 * * 1-5'  # Monday-Friday at 19:00 UTC
-  workflow_dispatch:  # Manual trigger for testing
+    - cron: '0 19 * * 1-5'  # Monday-Friday at 19:00 UTC (21:00 EET)
+  
+  # Allow manual triggering for testing
+  workflow_dispatch:
+    inputs:
+      test_mode:
+        description: 'Run in test mode (ignores weekday check)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
 
 jobs:
-  run-free-crypto-automation:
+  run-enhanced-crypto-automation:
     runs-on: ubuntu-latest
+    timeout-minutes: 15  # Prevent hanging workflows
     
     steps:
+    # Checkout the repository
     - name: Checkout repository
       uses: actions/checkout@v4
     
+    # Set up Python environment with caching
     - name: Set up Python 3.11
       uses: actions/setup-python@v4
       with:
         python-version: '3.11'
         cache: 'pip'
+        cache-dependency-path: 'requirements.txt'
     
+    # Install dependencies
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
     
-    - name: Run FREE Crypto Automation (Perplexity PRO Only)
+    # Validate environment variables (without exposing them)
+    - name: Validate configuration
       env:
         PERPLEXITY_API_KEY: ${{ secrets.PERPLEXITY_API_KEY }}
         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
-      run: python perplexity_automation.py
+      run: |
+        python -c "
+        import os
+        import sys
+        
+        required_vars = ['PERPLEXITY_API_KEY', 'TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHANNEL_ID']
+        missing_vars = []
+        
+        for var in required_vars:
+            if not os.getenv(var):
+                missing_vars.append(var)
+        
+        if missing_vars:
+            print(f'❌ Missing environment variables: {missing_vars}')
+            sys.exit(1)
+        else:
+            print('✅ All environment variables are configured')
+        "
     
+    # Run the Enhanced Crypto Automation
+    - name: Run Enhanced Crypto Automation
+      env:
+        PERPLEXITY_API_KEY: ${{ secrets.PERPLEXITY_API_KEY }}
+        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
+        TEST_MODE: ${{ github.event.inputs.test_mode || 'false' }}
+      run: |
+        echo "🚀 Starting Enhanced Crypto Market Automation..."
+        echo "⏰ Current time: $(date)"
+        echo "💰 Cost: $0.00 (Perplexity PRO only)"
+        python perplexity_automation.py
+    
+    # Upload logs as artifacts on failure
+    - name: Upload logs on failure
+      if: failure()
+      uses: actions/upload-artifact@v3
+      with:
+        name: automation-logs-${{ github.run_number }}
+        path: |
+          crypto_automation.log
+          *.log
+        retention-days: 7
+    
+    # Optional: Commit automation logs (only if there are changes)
     - name: Commit automation logs
       run: |
-        git config --local user.email "action@github.com"
-        git config --local user.name "GitHub Action"
-        git add -A
-        git diff --staged --quiet || git commit -m "FREE crypto automation - $(date)"
-        git push || echo "Nothing to push"
+        git config --local user.email "crypto-automation@github-actions.com"
+        git config --local user.name "Crypto Automation Bot"
+        
+        # Only commit if there are actual changes
+        if [ -f "crypto_automation.log" ]; then
+          git add crypto_automation.log
+          
+          # Check if there are changes to commit
+          if git diff --staged --quiet; then
+            echo "📝 No log changes to commit"
+          else
+            git commit -m "📊 Crypto automation log - $(date '+%Y-%m-%d %H:%M UTC')"
+            git push || echo "⚠️ Failed to push logs (this is okay)"
+          fi
+        else
+          echo "📝 No log file found"
+        fi
       continue-on-error: true
+    
+    # Send success notification (optional)
+    - name: Report success
+      if: success()
+      run: |
+        echo "🎉 Enhanced Crypto Automation completed successfully!"
+        echo "📊 Check your Telegram channel for the crypto market update"
+        echo "💎 Generated with: Perplexity PRO + GitHub Actions"
+    
+    # Send failure notification (optional)
+    - name: Report failure
+      if: failure()
+      run: |
+        echo "❌ Enhanced Crypto Automation failed!"
+        echo "📋 Check the logs above for error details"
+        echo "🔧 Common fixes:"
+        echo "  - Verify API keys in repository secrets"
+        echo "  - Check Perplexity API quota/credits"
+        echo "  - Ensure Telegram bot has channel permissions"
+
+# Optional: Add workflow permissions for better security
+permissions:
+  contents: write  # For committing logs
+  actions: read    # For accessing workflow artifacts
