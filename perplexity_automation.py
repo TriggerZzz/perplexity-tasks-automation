@@ -152,15 +152,30 @@ def main():
     """Main automation function"""
     logger.info("Starting daily Perplexity automation...")
     
-    # Get environment variables
-    perplexity_api_key = os.getenv('PERPLEXITY_API_KEY')
-    telegram_bot_token = os.getenv('TELEGRAM_BOT_TOKEN')
-    telegram_chat_id = os.getenv('TELEGRAM_CHAT_ID')
-    
-    # Validate environment variables
-    if not all([perplexity_api_key, telegram_bot_token, telegram_chat_id]):
-        logger.error("Missing required environment variables")
-        sys.exit(1)
+# Get environment variables
+perplexity_api_key = os.getenv('PERPLEXITY_API_KEY')
+telegram_bot_token = os.getenv('TELEGRAM_BOT_TOKEN')
+telegram_channel_id = os.getenv('TELEGRAM_CHANNEL_ID')
+
+# Debug logging (will show *** in logs for security)
+logger.info(f"PERPLEXITY_API_KEY present: {bool(perplexity_api_key)}")
+logger.info(f"TELEGRAM_BOT_TOKEN present: {bool(telegram_bot_token)}")
+logger.info(f"TELEGRAM_CHANNEL_ID present: {bool(telegram_channel_id)}")
+
+# More specific validation
+if not perplexity_api_key:
+    logger.error("PERPLEXITY_API_KEY environment variable not set or empty")
+    sys.exit(1)
+
+if not telegram_bot_token:
+    logger.error("TELEGRAM_BOT_TOKEN environment variable not set or empty")
+    sys.exit(1)
+
+if not telegram_channel_id:
+    logger.error("TELEGRAM_CHANNEL_ID environment variable not set or empty")
+    sys.exit(1)
+
+logger.info("All environment variables validated successfully")
     
     try:
         # Initialize clients
