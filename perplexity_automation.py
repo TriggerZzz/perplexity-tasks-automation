@@ -12,10 +12,12 @@ import time
 import logging
 import requests
 import tempfile
+import random
 from datetime import datetime
 from typing import Dict, Any, List, Optional, Tuple
 from pathlib import Path
 from urllib.parse import urlparse
+from dataclasses import dataclass
 
 # Configure comprehensive logging
 logging.basicConfig(
@@ -28,68 +30,171 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+@dataclass
+class PerplexityResponse:
+    """Data class to hold Perplexity API response"""
+    content: str
+    citations: List[str]
+    model: str
+    usage: Dict[str, int]
+    images: List[str] = None
+
 class PerplexityProCryptoGenerator:
-    """Generate crypto news and images using Perplexity PRO"""
+    """Generate crypto news and images using Perplexity PRO API"""
     
     def __init__(self, api_key: str):
+        """Initialize the Perplexity API client"""
+        if not api_key:
+            raise ValueError("API key cannot be empty")
+            
         self.api_key = api_key
         self.base_url = "https://api.perplexity.ai/chat/completions"
         self.headers = {
             "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+        }
+        
+        # Available models
+        self.models = {
+            "sonar_pro": "sonar-pro",
+            "sonar": "sonar",
+            "sonar_small": "llama-3.1-sonar-small-128k-online",
+            "sonar_large": "llama-3.1-sonar-large-128k-online",
+            "sonar_huge": "llama-3.1-sonar-huge-128k-online"
         }
     
     def get_crypto_news_with_images(self) -> Tuple[str, List[str]]:
         """Get crypto news summary with images from Perplexity PRO"""
         
-        query = """Create a comprehensive summary of today's top global cryptocurrency market news. Include:
-
-1. Major Bitcoin and Ethereum price movements and analysis
-2. Significant altcoin developments and market trends  
-3. Regulatory updates and government announcements
-4. Institutional adoption news and corporate crypto moves
-5. DeFi, NFT, and blockchain technology breakthroughs
-6. Breaking news about future crypto events and launches
-7. Market sentiment and trading volume analysis
-
-Please include relevant images showing cryptocurrency charts, trading data, or market visualizations. Make the summary informative and engaging for crypto investors and traders. Focus on today's date and recent developments."""
-        
-        payload = {
-            "model": "llama-3.1-sonar-small-128k-online",
-            "messages": [
-                {
-                    "role": "user", 
-                    "content": query
-                }
-            ],
-            "max_tokens": 2000,
-            "temperature": 0.3,
-            "return_citations": True,
-            "return_images": True
-        }
+        query = """Summarize today's top global news about crypto market. Include major economic events, market movements, regulatory updates, and highlight any breaking news about future events. Focus on Bitcoin, Ethereum, major altcoins, institutional adoption, and market trends. Please include relevant images showing cryptocurrency charts, trading data, or market visualizations."""
         
         try:
             logger.info("🔍 Fetching crypto news and images from Perplexity PRO...")
+            
+            # Generate crypto news with images
+            response = self.generate_crypto_news(
+                query=query,
+                model="sonar_pro",
+                search_recency_filter="day"
+            )
+            
+            logger.info(f"📰 Content length: {len(response.content)} characters")
+            logger.info(f"🖼️ Found {len(response.images or [])} images")
+            
+            # Format the content
+            formatted_content = self.format_crypto_summary(response.content)
+            
+            return formatted_content, response.images or []
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to get crypto news: {e}")
+            raise
+    
+    def generate_crypto_news(
+        self, 
+        query: str = None, 
+        model: str = "sonar_pro",
+        max_tokens: int = 2000,
+        temperature: float = 0.3,
+        search_domain_filter: List[str] = None,
+        search_recency_filter: str = "day"
+    ) -> PerplexityResponse:
+        """Generate crypto news using Perplexity API"""
+        
+        # Default crypto news query
+        if query is None:
+            query = """Provide a comprehensive summary of today's cryptocurrency market developments. 
+            Include major price movements, regulatory news, institutional adoption, and breaking developments. 
+            Focus on Bitcoin, Ethereum, and other major cryptocurrencies. Make it informative for crypto investors."""
+        
+        # Default crypto-focused domains
+        if search_domain_filter is None:
+            search_domain_filter = [
+                "coindesk.com",
+                "cointelegraph.com", 
+                "coinmarketcap.com",
+                "crypto.news",
+                "decrypt.co",
+                "theblock.co"
+            ]
+        
+        payload = {
+            "model": self.models.get(model, "sonar-pro"),
+            "messages": [
+                {
+                    "role": "user",
+                    "content": query
+                }
+            ],
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "return_citations": True,
+            "return_images": True,
+            "search_domain_filter": search_domain_filter,
+            "search_recency_filter": search_recency_filter
+        }
+        
+        return self.generate_with_retry(payload)
+    
+    def generate_with_retry(
+        self, 
+        payload: Dict[str, Any], 
+        max_retries: int = 3
+    ) -> PerplexityResponse:
+        """Make API request with exponential backoff retry logic"""
+        retries = 0
+        
+        while retries < max_retries:
+            try:
+                return self._make_request(payload)
+                
+            except requests.exceptions.RequestException as e:
+                error_msg = str(e).lower()
+                
+                if "rate_limit" in error_msg or "429" in error_msg:
+                    sleep_time = (2 ** retries) + random.uniform(0, 1)
+                    logger.warning(f"Rate limited. Retrying in {sleep_time:.2f} seconds...")
+                    time.sleep(sleep_time)
+                    retries += 1
+                elif retries < max_retries - 1:
+                    logger.warning(f"Request failed: {e}. Retrying...")
+                    retries += 1
+                    time.sleep(1)
+                else:
+                    raise e
+            except Exception as e:
+                if retries < max_retries - 1:
+                    logger.warning(f"Unexpected error: {e}. Retrying...")
+                    retries += 1
+                    time.sleep(1)
+                else:
+                    raise e
+        
+        raise Exception(f"Max retries ({max_retries}) exceeded")
+    
+    def _make_request(self, payload: Dict[str, Any]) -> PerplexityResponse:
+        """Make the actual API request"""
+        try:
             response = requests.post(
-                self.base_url,
+                self.base_url, 
                 headers=self.headers, 
                 json=payload,
-                timeout=90
+                timeout=60
             )
             
             logger.info(f"📡 Response status code: {response.status_code}")
             
-            if response.status_code != 200:
-                logger.error(f"❌ API response error: {response.text}")
-                raise Exception(f"API returned {response.status_code}")
-            
             response.raise_for_status()
             result = response.json()
             
-            # Extract content and images
+            # Parse response
             content = result['choices'][0]['message']['content']
+            citations = result.get('citations', [])
+            model = result.get('model', 'unknown')
+            usage = result.get('usage', {})
             
-            # Extract images from multiple possible locations
+            # Extract images from multiple locations
             images = []
             
             # Method 1: Direct images array
@@ -100,17 +205,7 @@ Please include relevant images showing cryptocurrency charts, trading data, or m
                     elif isinstance(img, dict) and 'url' in img:
                         images.append(img['url'])
             
-            # Method 2: From choices
-            if 'choices' in result and len(result['choices']) > 0:
-                choice = result['choices'][0]
-                if 'images' in choice:
-                    for img in choice['images']:
-                        if isinstance(img, str):
-                            images.append(img)
-                        elif isinstance(img, dict) and 'url' in img:
-                            images.append(img['url'])
-            
-            # Method 3: From provider metadata
+            # Method 2: From provider metadata
             if 'provider_metadata' in result:
                 metadata = result['provider_metadata']
                 if 'perplexity' in metadata and 'images' in metadata['perplexity']:
@@ -120,22 +215,37 @@ Please include relevant images showing cryptocurrency charts, trading data, or m
                         elif 'url' in img:
                             images.append(img['url'])
             
-            logger.info(f"📰 Content length: {len(content)} characters")
-            logger.info(f"🖼️ Found {len(images)} images")
+            return PerplexityResponse(
+                content=content,
+                citations=citations,
+                model=model,
+                usage=usage,
+                images=images
+            )
             
-            # Format the content
-            formatted_content = self.format_crypto_summary(content)
-            
-            return formatted_content, images
+        except requests.exceptions.HTTPError as e:
+            if response.status_code == 401:
+                raise Exception("Invalid API key. Please check your Perplexity API key.")
+            elif response.status_code == 429:
+                raise Exception("Rate limit exceeded. Please try again later.")
+            elif response.status_code >= 500:
+                raise Exception(f"Server error: {e}")
+            else:
+                error_text = ""
+                try:
+                    error_text = response.text
+                except:
+                    pass
+                raise Exception(f"HTTP error {response.status_code}: {error_text}")
+                
+        except requests.exceptions.Timeout:
+            raise Exception("Request timeout. Please try again.")
             
         except requests.exceptions.RequestException as e:
-            logger.error(f"❌ Perplexity API error: {e}")
-            if hasattr(e, 'response') and e.response is not None:
-                logger.error(f"Response content: {e.response.text}")
-            raise
-        except Exception as e:
-            logger.error(f"❌ Unexpected error: {e}")
-            raise
+            raise Exception(f"Request failed: {e}")
+            
+        except (KeyError, json.JSONDecodeError) as e:
+            raise Exception(f"Invalid response format: {e}")
     
     def format_crypto_summary(self, content: str) -> str:
         """Format crypto summary to exactly 1,500 characters without spaces"""
